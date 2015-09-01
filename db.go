@@ -16,7 +16,7 @@ var storageTTL = 35 * 24 * time.Hour
 type DB struct {
 	client *redis.Client
 
-	mcursor, tcursor int64
+	cursor int64 // compaction cursor
 }
 
 func NewDB(addr string, db int64) *DB {
@@ -33,21 +33,19 @@ func (b *DB) Compact() error {
 	pipe := b.client.Pipeline()
 	defer pipe.Close()
 
-	for prefix, ptr := range map[string]*int64{"m:*": &b.mcursor, "t:*": &b.tcursor} {
-		cursor, keys, err := b.client.Scan(atomic.LoadInt64(ptr), prefix, 20).Result()
-		if err != nil {
-			return err
-		}
-		atomic.StoreInt64(ptr, cursor)
+	cursor, keys, err := b.client.Scan(atomic.LoadInt64(&b.cursor), "[mt]:*", 20).Result()
+	if err != nil {
+		return err
+	}
+	atomic.StoreInt64(&b.cursor, cursor)
 
-		for _, key := range keys {
-			if err := b.expire(key, pipe, max); err != nil {
-				return err
-			}
+	for _, key := range keys {
+		if err := b.expire(key, pipe, max); err != nil {
+			return err
 		}
 	}
 
-	_, err := pipe.Exec()
+	_, err = pipe.Exec()
 	return err
 }
 
@@ -180,7 +178,7 @@ func (b *DB) scanIndex(key string, min, max int64) (matches *strset.Set, err err
 
 // expire appends expiration commands to a redis pipeline
 func (b *DB) expire(key string, pipe *redis.Pipeline, max int64) error {
-	_, members, err := b.client.SScan(key, 0, "", 100).Result()
+	members, err := b.client.SRandMemberN(key, 100).Result()
 	if err != nil {
 		return err
 	}
