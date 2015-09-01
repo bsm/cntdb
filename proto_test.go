@@ -13,7 +13,7 @@ var _ = Describe("Point", func() {
 
 	BeforeEach(func() {
 		var err error
-		subject, err = NewPoint("cpu", []string{"host:server-1", "dc:aws"}, stdtime.Time, 7)
+		subject, err = NewPointAt("cpu", []string{"host:server-1", "dc:aws"}, stdtime.Time, 7)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -25,17 +25,17 @@ var _ = Describe("Point", func() {
 	It("should create", func() {
 		Expect(subject.String()).To(Equal("cpu,dc:aws,host:server-1 1414141414 7\n"))
 
-		pt, err := NewPoint("cpu", nil, stdtime.Time, -2)
+		pt, err := NewPointAt("cpu", nil, stdtime.Time, -2)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(pt.String()).To(Equal("cpu 1414141414 -2\n"))
 
-		_, err = NewPoint(strings.Repeat("a", 51), nil, stdtime.Time, 1)
+		_, err = NewPointAt(strings.Repeat("a", 51), nil, stdtime.Time, 1)
 		Expect(err).To(Equal(errInvalidMetric))
 
-		_, err = NewPoint("cpu", []string{strings.Repeat("a", 51)}, stdtime.Time, 1)
+		_, err = NewPointAt("cpu", []string{strings.Repeat("a", 51)}, stdtime.Time, 1)
 		Expect(err).To(Equal(errInvalidTag))
 
-		_, err = NewPoint("cpu", []string{"bad tag"}, stdtime.Time, 1)
+		_, err = NewPointAt("cpu", []string{"bad tag"}, stdtime.Time, 1)
 		Expect(err).To(Equal(errInvalidTag))
 	})
 

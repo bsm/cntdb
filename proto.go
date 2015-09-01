@@ -47,10 +47,14 @@ func ParsePoint(raw string) (*Point, error) {
 		return nil, errBadFormat
 	}
 
-	return NewPoint(mt[0], tags, time.Unix(sec, 0), count)
+	return NewPointAt(mt[0], tags, time.Unix(sec, 0), count)
 }
 
-func NewPoint(metric string, tags []string, at time.Time, count int64) (*Point, error) {
+func NewPoint(metric string, tags []string, count int64) (*Point, error) {
+	return NewPointAt(metric, tags, time.Now(), count)
+}
+
+func NewPointAt(metric string, tags []string, at time.Time, count int64) (*Point, error) {
 	if len(metric) < 1 || len(metric) > 50 {
 		return nil, errInvalidMetric
 	} else if len(tags) > 50 {

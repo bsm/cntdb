@@ -1,6 +1,9 @@
 package cntdb
 
 import (
+	"fmt"
+	"math/rand"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -158,3 +161,58 @@ var _ = Describe("DB", func() {
 	})
 
 })
+
+func benchWrites(b *testing.B, batchSize int, tagsMap map[string]int) {
+	// Set batch size
+	if testing.Short() {
+		batchSize /= 10
+	}
+
+	// Prepare available tag choices
+	choices := make([][]string, 0, len(tagsMap))
+	for pattern, count := range tagsMap {
+		tags := make([]string, count)
+		for i := 0; i < count; i++ {
+			tags[i] = fmt.Sprintf(pattern, i)
+		}
+		choices = append(choices, tags)
+	}
+
+	// Connect
+	client := NewDB("127.0.0.1:6379", 9)
+	defer client.client.FlushDb()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i += batchSize {
+		batch := make([]Point, batchSize)
+		for n := 0; n < batchSize; n++ {
+			tags := make([]string, len(choices))
+			for k, list := range choices {
+				tags[k] = list[rand.Intn(len(list))]
+			}
+
+			point, _ := NewPoint("cpu", tags, 2)
+			batch[n] = *point
+		}
+
+		if err := client.WritePoints(batch); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkWritePoints_10kMetrics_HugeBatches(b *testing.B) {
+	benchWrites(b, 10000, map[string]int{"host:srv-%d": 10, "port:%d": 100, "inst:m%d": 10})
+}
+
+func BenchmarkWritePoints_10kMetrics_LargeBatches(b *testing.B) {
+	benchWrites(b, 1000, map[string]int{"host:srv-%d": 10, "port:%d": 100, "inst:m%d": 10})
+}
+
+func BenchmarkWritePoints_100Metrics_LargeBatches(b *testing.B) {
+	benchWrites(b, 1000, map[string]int{"host:srv-%d": 10, "port:%d": 1, "inst:m%d": 10})
+}
+
+func BenchmarkWritePoints_10kMetrics_SmallBatches(b *testing.B) {
+	benchWrites(b, 100, map[string]int{"host:srv-%d": 10, "port:%d": 1, "inst:m%d": 10})
+}
