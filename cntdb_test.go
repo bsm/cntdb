@@ -29,7 +29,7 @@ var _ = Describe("Helpers", func() {
 
 // --------------------------------------------------------------------
 
-func point(s string) *Point {
+func point(s string) Point {
 	pt, err := ParsePoint(s)
 	if err != nil {
 		Fail(err.Error())

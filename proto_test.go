@@ -9,7 +9,7 @@ import (
 
 var _ = Describe("Point", func() {
 	var stdtime = unixTimestamp(1414141414)
-	var subject *Point
+	var subject Point
 
 	BeforeEach(func() {
 		var err error
@@ -55,7 +55,7 @@ var _ = Describe("Point", func() {
 		for _, test := range tests {
 			pt, err := ParsePoint(test.s)
 			Expect(err).NotTo(HaveOccurred(), "for %s", test.s)
-			Expect(*pt).To(Equal(test.p), "for %s", test.s)
+			Expect(pt).To(Equal(test.p), "for %s", test.s)
 		}
 	})
 

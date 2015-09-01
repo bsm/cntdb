@@ -23,10 +23,10 @@ var _ = Describe("DB", func() {
 
 	It("should write points", func() {
 		subject.WritePoints([]Point{
-			*point("cpu,host:a,dc:x 1414141414 2"),
-			*point("cpu,dc:x,host:a 1414141414 4"),
-			*point("cpu,host:b,dc:x 1414141414 3"),
-			*point("cpu,host:a,dc:x 1414141414 -1"),
+			point("cpu,host:a,dc:x 1414141414 2"),
+			point("cpu,dc:x,host:a 1414141414 4"),
+			point("cpu,host:b,dc:x 1414141414 3"),
+			point("cpu,host:a,dc:x 1414141414 -1"),
 		})
 
 		Expect(subject.client.Keys("*").Val()).To(ConsistOf([]string{
@@ -57,11 +57,11 @@ var _ = Describe("DB", func() {
 
 	It("should scope keys", func() {
 		subject.WritePoints([]Point{
-			*point("cpu,a,b 1414141414 1"),
-			*point("cpu,a,c 1414141414 1"),
-			*point("cpu,b,c 1414141414 1"),
-			*point("cpu,a,c 1414141414 1"),
-			*point("mem,a,c 1414141414 1"),
+			point("cpu,a,b 1414141414 1"),
+			point("cpu,a,c 1414141414 1"),
+			point("cpu,b,c 1414141414 1"),
+			point("cpu,a,c 1414141414 1"),
+			point("mem,a,c 1414141414 1"),
 		})
 
 		tests := []struct {
@@ -95,11 +95,11 @@ var _ = Describe("DB", func() {
 
 	It("should query results", func() {
 		subject.WritePoints([]Point{
-			*point("cpu,a,b 1414141414 1"),
-			*point("cpu,a,c 1414141414 2"),
-			*point("cpu,b,c 1414141414 4"),
-			*point("cpu,a,c 1414141414 8"),
-			*point("mem,a,c 1414141414 16"),
+			point("cpu,a,b 1414141414 1"),
+			point("cpu,a,c 1414141414 2"),
+			point("cpu,b,c 1414141414 4"),
+			point("cpu,a,c 1414141414 8"),
+			point("mem,a,c 1414141414 16"),
 		})
 
 		res, err := subject.Query(&Criteria{
@@ -125,11 +125,11 @@ var _ = Describe("DB", func() {
 
 	It("should compact", func() {
 		subject.WritePoints([]Point{
-			*point("cpu,a,b 1414141414 1"),
-			*point("cpu,a,c 1818181818 2"),
-			*point("cpu,b,c 1414141414 4"),
-			*point("cpu,a,c 1818181818 8"),
-			*point("mem,a,c 1414141414 16"),
+			point("cpu,a,b 1414141414 1"),
+			point("cpu,a,c 1818181818 2"),
+			point("cpu,b,c 1414141414 4"),
+			point("cpu,a,c 1818181818 8"),
+			point("mem,a,c 1414141414 16"),
 		})
 
 		Expect(subject.client.Keys("*").Val()).To(ConsistOf([]string{
@@ -187,7 +187,7 @@ func benchWrites(b *testing.B, batchSize int, tagsMap map[string]int) {
 			}
 
 			point, _ := NewPoint("cpu", tags, 2)
-			batch[n] = *point
+			batch[n] = point
 		}
 
 		if err := client.WritePoints(batch); err != nil {
@@ -217,11 +217,11 @@ func BenchmarkQuery_Parallel(b *testing.B) {
 	defer client.client.FlushDb()
 
 	err := client.WritePoints([]Point{
-		*point("cpu,a,b 1414141414 1"),
-		*point("cpu,a,c 1414141414 2"),
-		*point("cpu,b,c 1414141414 4"),
-		*point("cpu,a,c 1414141414 8"),
-		*point("mem,a,c 1414141414 16"),
+		point("cpu,a,b 1414141414 1"),
+		point("cpu,a,c 1414141414 2"),
+		point("cpu,b,c 1414141414 4"),
+		point("cpu,a,c 1414141414 8"),
+		point("mem,a,c 1414141414 16"),
 	})
 	if err != nil {
 		b.Fatal(err)
