@@ -12,11 +12,6 @@ import (
 
 var _ = Describe("DB", func() {
 	var subject *DB
-	var point = func(s string) *Point {
-		pt, err := ParsePoint(s)
-		Expect(err).NotTo(HaveOccurred())
-		return pt
-	}
 
 	BeforeEach(func() {
 		subject = NewDB("localhost:6379", 9)
@@ -201,18 +196,47 @@ func benchWrites(b *testing.B, batchSize int, tagsMap map[string]int) {
 	}
 }
 
-func BenchmarkWritePoints_10kMetrics_HugeBatches(b *testing.B) {
-	benchWrites(b, 10000, map[string]int{"host:srv-%d": 10, "port:%d": 100, "inst:m%d": 10})
+func BenchmarkWritePoints_1kMetrics_HugeBatches(b *testing.B) {
+	benchWrites(b, 10000, map[string]int{"host:srv-%d": 10, "port:%d": 10, "inst:m%d": 10})
 }
 
-func BenchmarkWritePoints_10kMetrics_LargeBatches(b *testing.B) {
-	benchWrites(b, 1000, map[string]int{"host:srv-%d": 10, "port:%d": 100, "inst:m%d": 10})
+func BenchmarkWritePoints_1kMetrics_LargeBatches(b *testing.B) {
+	benchWrites(b, 1000, map[string]int{"host:srv-%d": 10, "port:%d": 10, "inst:m%d": 10})
+}
+
+func BenchmarkWritePoints_1kMetrics_SmallBatches(b *testing.B) {
+	benchWrites(b, 100, map[string]int{"host:srv-%d": 10, "port:%d": 1, "inst:m%d": 10})
 }
 
 func BenchmarkWritePoints_100Metrics_LargeBatches(b *testing.B) {
 	benchWrites(b, 1000, map[string]int{"host:srv-%d": 10, "port:%d": 1, "inst:m%d": 10})
 }
 
-func BenchmarkWritePoints_10kMetrics_SmallBatches(b *testing.B) {
-	benchWrites(b, 100, map[string]int{"host:srv-%d": 10, "port:%d": 1, "inst:m%d": 10})
+func BenchmarkQuery_Parallel(b *testing.B) {
+	client := NewDB("127.0.0.1:6379", 9)
+	defer client.client.FlushDb()
+
+	err := client.WritePoints([]Point{
+		*point("cpu,a,b 1414141414 1"),
+		*point("cpu,a,c 1414141414 2"),
+		*point("cpu,b,c 1414141414 4"),
+		*point("cpu,a,c 1414141414 8"),
+		*point("mem,a,c 1414141414 16"),
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, err := client.Query(&Criteria{
+				Metric: "cpu",
+				From:   time.Unix(1414141400, 0),
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }

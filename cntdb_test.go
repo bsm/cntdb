@@ -29,6 +29,14 @@ var _ = Describe("Helpers", func() {
 
 // --------------------------------------------------------------------
 
+func point(s string) *Point {
+	pt, err := ParsePoint(s)
+	if err != nil {
+		Fail(err.Error())
+	}
+	return pt
+}
+
 func TestSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "cntdb")
