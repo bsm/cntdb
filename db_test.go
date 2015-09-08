@@ -113,6 +113,12 @@ var _ = Describe("DB", func() {
 				},
 			},
 			{
+				Criteria{Metric: "cpu", From: time.Unix(1414100000, 0), Interval: 10 * time.Minute},
+				ResultSet{
+					{time.Unix(1414141200, 0).UTC(), 15},
+				},
+			},
+			{
 				Criteria{Metric: "cpu", From: time.Unix(1414141400, 0), Tags: []string{"a"}, Interval: time.Hour},
 				ResultSet{
 					{time.Unix(1414141200, 0).UTC(), 11},
