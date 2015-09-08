@@ -2,6 +2,7 @@ package cntdb
 
 import (
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -35,6 +36,11 @@ func point(s string) Point {
 		Fail(err.Error())
 	}
 	return pt
+}
+
+func xmltime(s string) time.Time {
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
 }
 
 func TestSuite(t *testing.T) {

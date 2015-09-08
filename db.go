@@ -86,7 +86,7 @@ func (b *DB) Query(c *Criteria) (ResultSet, error) {
 
 	acc := make(map[time.Time]int64, 100)
 	for _, key := range keys.Slice() {
-		b.scanZSumInto(acc, key, from.Truncate(interval), until.Time, interval)
+		b.scanZSumInto(acc, key, from.Truncate(time.Minute), until.Time.Truncate(time.Minute), interval)
 	}
 
 	res := make(ResultSet, 0, len(acc))
@@ -140,13 +140,13 @@ func (b *DB) scanZSumInto(acc map[time.Time]int64, key string, min, max time.Tim
 
 		for i := 0; i < len(pairs); i += 2 {
 			mins, _ := strconv.ParseInt(pairs[i], 10, 64)
-			tstamp := base.Add(time.Duration(mins) * time.Minute).Truncate(by)
+			tstamp := base.Add(time.Duration(mins) * time.Minute)
 			if tstamp.Before(min) || tstamp.After(max) {
 				continue
 			}
 
 			value, _ := strconv.ParseInt(pairs[i+1], 10, 64)
-			acc[tstamp] += value
+			acc[tstamp.Truncate(by)] += value
 		}
 
 		if cursor == 0 {

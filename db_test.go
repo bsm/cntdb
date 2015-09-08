@@ -95,39 +95,64 @@ var _ = Describe("DB", func() {
 
 	It("should query results", func() {
 		subject.WritePoints([]Point{
-			point("cpu,a,b 1414141414 1"),
-			point("cpu,a,c 1414141414 2"),
-			point("cpu,b,c 1414141414 4"),
-			point("cpu,a,c 1414141414 8"),
-			point("mem,a,c 1414141414 16"),
+			point("cpu,a,b 1414141200 1"),  // 2014-10-24T09:00:00Z
+			point("cpu,a,c 1414141300 2"),  // 2014-10-24T09:01:40Z
+			point("cpu,a,c 1414142000 4"),  // 2014-10-24T09:13:20Z
+			point("cpu,b,c 1414146000 8"),  // 2014-10-24T10:20:00Z
+			point("cpu,a,b 1414200000 16"), // 2014-10-25T01:20:00Z
+			point("cpu,b,c 1414230000 32"), // 2014-10-25T09:40:00Z
+			point("mem,a,c 1414141200 64"),
 		})
 
 		tests := []struct {
 			crit Criteria
 			res  ResultSet
 		}{
-			{
-				Criteria{Metric: "cpu", From: time.Unix(1414141400, 0)},
-				ResultSet{
-					{time.Unix(1414141380, 0).UTC(), 15},
-				},
-			},
-			{
-				Criteria{Metric: "cpu", From: time.Unix(1414100000, 0), Interval: 10 * time.Minute},
-				ResultSet{
-					{time.Unix(1414141200, 0).UTC(), 15},
-				},
-			},
-			{
-				Criteria{Metric: "cpu", From: time.Unix(1414141400, 0), Tags: []string{"a"}, Interval: time.Hour},
-				ResultSet{
-					{time.Unix(1414141200, 0).UTC(), 11},
-				},
-			},
-			{
-				Criteria{Metric: "cpu", From: time.Unix(1414161400, 0)},
-				ResultSet{},
-			},
+			// from 09:00 until open end, by hour
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T09:00:00Z"), Interval: time.Hour}, ResultSet{
+				{xmltime("2014-10-24T09:00:00Z"), 7},
+				{xmltime("2014-10-24T10:00:00Z"), 8},
+				{xmltime("2014-10-25T01:00:00Z"), 16},
+				{xmltime("2014-10-25T09:00:00Z"), 32},
+			}},
+			// from 10:00 until open end, by day
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T10:00:00Z"), Interval: 24 * time.Hour}, ResultSet{
+				{xmltime("2014-10-24T00:00:00Z"), 8},
+				{xmltime("2014-10-25T00:00:00Z"), 48},
+			}},
+			// between 09:00 and 09:10, by minute
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T09:00:00Z"), Until: xmltime("2014-10-24T09:10:00Z"), Interval: time.Minute}, ResultSet{
+				{xmltime("2014-10-24T09:00:00Z"), 1},
+				{xmltime("2014-10-24T09:01:00Z"), 2},
+			}},
+			// between 08:59 and 09:01, by minute
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T08:59:00Z"), Until: xmltime("2014-10-24T09:01:00Z"), Interval: time.Minute}, ResultSet{
+				{xmltime("2014-10-24T09:00:00Z"), 1},
+				{xmltime("2014-10-24T09:01:00Z"), 2},
+			}},
+			// between 09:01 and 09:03, by minute
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T09:01:00Z"), Until: xmltime("2014-10-24T09:03:00Z"), Interval: time.Minute}, ResultSet{
+				{xmltime("2014-10-24T09:01:00Z"), 2},
+			}},
+			// between 09:00 and 09:12:59, by 10-mins
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T09:00:00Z"), Until: xmltime("2014-10-24T09:12:59Z"), Interval: 10 * time.Minute}, ResultSet{
+				{xmltime("2014-10-24T09:00:00Z"), 3},
+			}},
+			// between 09:00 and 09:12:59, by 10-mins
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T09:00:00Z"), Until: xmltime("2014-10-24T09:13:00Z"), Interval: 10 * time.Minute}, ResultSet{
+				{xmltime("2014-10-24T09:00:00Z"), 3},
+				{xmltime("2014-10-24T09:10:00Z"), 4},
+			}},
+
+			// tagged with 'a' between 09:00 and 11:00, by hour
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T09:00:00Z"), Until: xmltime("2014-10-24T11:00:00Z"), Tags: []string{"a"}, Interval: time.Hour}, ResultSet{
+				{xmltime("2014-10-24T09:00:00Z"), 7},
+			}},
+
+			// `from` is after the last point
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-25T09:41:00Z"), Interval: time.Minute}, ResultSet{}},
+			// `until` is before the first point
+			{Criteria{Metric: "cpu", From: xmltime("2014-10-24T08:00:00Z"), Until: xmltime("2014-10-24T08:59:00Z"), Interval: time.Minute}, ResultSet{}},
 		}
 
 		for _, test := range tests {
