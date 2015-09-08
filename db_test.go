@@ -102,25 +102,33 @@ var _ = Describe("DB", func() {
 			point("mem,a,c 1414141414 16"),
 		})
 
-		res, err := subject.Query(&Criteria{
-			Metric: "cpu",
-			From:   time.Unix(1414141400, 0),
-		})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(res).To(Equal(ResultSet{
-			{time.Unix(1414141380, 0).UTC(), 15},
-		}))
+		tests := []struct {
+			crit Criteria
+			res  ResultSet
+		}{
+			{
+				Criteria{Metric: "cpu", From: time.Unix(1414141400, 0)},
+				ResultSet{
+					{time.Unix(1414141380, 0).UTC(), 15},
+				},
+			},
+			{
+				Criteria{Metric: "cpu", From: time.Unix(1414141400, 0), Tags: []string{"a"}, Interval: time.Hour},
+				ResultSet{
+					{time.Unix(1414141200, 0).UTC(), 11},
+				},
+			},
+			{
+				Criteria{Metric: "cpu", From: time.Unix(1414161400, 0)},
+				ResultSet{},
+			},
+		}
 
-		res, err = subject.Query(&Criteria{
-			Metric:   "cpu",
-			From:     time.Unix(1414141400, 0),
-			Tags:     []string{"a"},
-			Interval: time.Hour,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(res).To(Equal(ResultSet{
-			{time.Unix(1414141200, 0).UTC(), 11},
-		}))
+		for _, test := range tests {
+			res, err := subject.Query(&test.crit)
+			Expect(err).NotTo(HaveOccurred(), "for %+v", test.crit)
+			Expect(res).To(Equal(test.res), "for %+v", test.crit)
+		}
 	})
 
 	It("should compact", func() {

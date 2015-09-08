@@ -85,8 +85,9 @@ func (b *DB) Query(c *Criteria) (ResultSet, error) {
 	defer setPool.Put(keys)
 
 	acc := make(map[time.Time]int64, 100)
+	min, max := from.MinuteOfDay(), until.MinuteOfDay()
 	for _, key := range keys.Slice() {
-		b.scanZSumInto(acc, key, from, until, interval)
+		b.scanZSumInto(acc, key, min, max, interval)
 	}
 
 	res := make(ResultSet, 0, len(acc))
@@ -127,7 +128,7 @@ func (b *DB) scopeKeys(metric string, tags []string, min, max int64) (*strset.Se
 }
 
 // scans a redis zset and sums values into acc
-func (b *DB) scanZSumInto(acc map[time.Time]int64, key string, min, max timestamp, by time.Duration) (err error) {
+func (b *DB) scanZSumInto(acc map[time.Time]int64, key string, minMin, maxMin int64, by time.Duration) (err error) {
 	var cursor int64
 
 	base := time.Unix(parseUnixDay(key)*86400, 0).UTC()
@@ -139,9 +140,13 @@ func (b *DB) scanZSumInto(acc map[time.Time]int64, key string, min, max timestam
 		}
 
 		for i := 0; i < len(pairs); i += 2 {
-			mins, _ := strconv.ParseInt(pairs[i], 10, 64)
+			minOfDay, _ := strconv.ParseInt(pairs[i], 10, 64)
+			if minOfDay < minMin || minOfDay > maxMin {
+				continue
+			}
+
+			tstamp := base.Add(time.Duration(minOfDay) * time.Minute).Truncate(by)
 			value, _ := strconv.ParseInt(pairs[i+1], 10, 64)
-			tstamp := base.Add(time.Duration(mins) * time.Minute).Truncate(by)
 			acc[tstamp] += value
 		}
 

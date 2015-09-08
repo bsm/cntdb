@@ -16,16 +16,16 @@ type Criteria struct {
 
 func (c *Criteria) getFrom() timestamp {
 	if c == nil || c.From.IsZero() {
-		return timestamp{time.Now().Add(-time.Hour)}
+		return timestamp{time.Now().Add(-time.Hour).UTC()}
 	}
-	return timestamp{c.From}
+	return timestamp{c.From.UTC()}
 }
 
 func (c *Criteria) getUntil() timestamp {
 	if c == nil || c.Until.IsZero() {
-		return timestamp{time.Now()}
+		return timestamp{time.Now().UTC()}
 	}
-	return timestamp{c.Until}
+	return timestamp{c.Until.UTC()}
 }
 
 func (c *Criteria) getInterval() time.Duration {
