@@ -83,13 +83,11 @@ func (b *DB) Query(c *Criteria) (ResultSet, error) {
 	}
 
 	acc := make(map[time.Time]int64, 100)
-	for _, key := range keys.Slice() {
-		if err := b.scanSeries(key, from.Time, until.Time, func(r Result) error {
-			acc[r.Timestamp.Truncate(interval)] += r.Value
-			return nil
-		}); err != nil {
-			return nil, err
-		}
+	if err := b.scanSeries(keys.Slice(), from.Time, until.Time, func(r Result) error {
+		acc[r.Timestamp.Truncate(interval)] += r.Value
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	res := make(ResultSet, 0, len(acc))
@@ -123,42 +121,47 @@ func (b *DB) scopeKeys(metric string, tags []string, from, until timestamp) (*st
 	return scope.Intersect(filters), nil
 }
 
-// scans a series and applies callback to each result
-func (b *DB) scanSeries(key string, from, until time.Time, callback func(Result) error) (err error) {
-	series, err := parseSeries(key)
-	if err != nil {
-		return err
-	}
-
-	base := series.StartTime()
+// scans multiple series and applies callback to each result
+func (b *DB) scanSeries(keys []string, from, until time.Time, callback func(Result) error) error {
 	min, max := from.Truncate(time.Minute), until.Truncate(time.Minute)
 
-	var cursor int64
-	for {
-		var pairs []string
-		cursor, pairs, err = b.client.ZScan(key, cursor, "", 100).Result()
+	pipe := b.client.Pipeline()
+	defer pipe.Close()
+
+	// parse/validate keys, build pipeline
+	series := make([]series, len(keys))
+	cmds := make([]*redis.ZSliceCmd, len(keys))
+	for n, key := range keys {
+		ser, err := parseSeries(key)
 		if err != nil {
-			return
+			return err
+		}
+		series[n] = ser
+		cmds[n] = pipe.ZRangeWithScores(key, 0, -1)
+	}
+	_, _ = pipe.Exec()
+
+	// iterate over series, process results
+	for n, ser := range series {
+		base := ser.StartTime()
+		pairs, err := cmds[n].Result()
+		if err != nil {
+			return err
 		}
 
-		for i := 0; i < len(pairs); i += 2 {
-			offset, _ := strconv.ParseInt(pairs[i], 10, 64)
+		for _, pair := range pairs {
+			offset, _ := strconv.ParseInt(pair.Member.(string), 10, 64)
 			timestamp := base.Add(time.Duration(offset) * time.Minute)
 			if timestamp.Before(min) || timestamp.After(max) {
 				continue
 			}
 
-			value, _ := strconv.ParseInt(pairs[i+1], 10, 64)
-			if err = callback(Result{timestamp, value}); err != nil {
-				return
+			if err := callback(Result{timestamp, int64(pair.Score)}); err != nil {
+				return err
 			}
 		}
-
-		if cursor == 0 {
-			break
-		}
 	}
-	return
+	return nil
 }
 
 // scans a redis index via SSCAN to retrieve all keys
