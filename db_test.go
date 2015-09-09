@@ -86,8 +86,8 @@ var _ = Describe("DB", func() {
 		}
 
 		for _, test := range tests {
-			min, max := unixTimestamp(test.from).UnixDay(), unixTimestamp(1515151515).UnixDay()
-			keys, err := subject.scopeKeys(test.met, test.tags, min, max)
+			from, until := unixTimestamp(test.from), unixTimestamp(1515151515)
+			keys, err := subject.scopeKeys(test.met, test.tags, from, until)
 			Expect(err).NotTo(HaveOccurred(), "for %+v", test)
 			Expect(keys.Slice()).To(Equal(test.res), "for %+v", test)
 		}

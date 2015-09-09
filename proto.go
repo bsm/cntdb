@@ -14,6 +14,7 @@ var (
 	errInvalidTag    = errors.New("cntdb: invalid tag name")
 	errTooManyTags   = errors.New("cntdb: too many tags")
 	errBadFormat     = errors.New("cntdb: bad format")
+	errInvalidKey    = errors.New("cntdb: invalid key type")
 )
 
 type Point struct {

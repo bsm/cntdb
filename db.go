@@ -3,7 +3,6 @@ package cntdb
 import (
 	"sort"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -78,15 +77,19 @@ func (b *DB) Query(c *Criteria) (ResultSet, error) {
 	from, until := c.getFrom(), c.getUntil()
 	interval := c.getInterval()
 
-	keys, err := b.scopeKeys(c.Metric, c.Tags, from.UnixDay(), until.UnixDay())
+	keys, err := b.scopeKeys(c.Metric, c.Tags, from, until)
 	if err != nil {
 		return nil, err
 	}
-	defer setPool.Put(keys)
 
 	acc := make(map[time.Time]int64, 100)
 	for _, key := range keys.Slice() {
-		b.scanZSumInto(acc, key, from.Truncate(time.Minute), until.Time.Truncate(time.Minute), interval)
+		if err := b.scanSeries(key, from.Time, until.Time, func(r Result) error {
+			acc[r.Timestamp.Truncate(interval)] += r.Value
+			return nil
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	res := make(ResultSet, 0, len(acc))
@@ -97,9 +100,10 @@ func (b *DB) Query(c *Criteria) (ResultSet, error) {
 	return res, err
 }
 
-// scope all keys that are relevant for the query
-func (b *DB) scopeKeys(metric string, tags []string, min, max int64) (*strset.Set, error) {
-	scope, err := b.scanIndex("m:"+metric, min, max)
+// scope all series keys that are relevant for the query
+func (b *DB) scopeKeys(metric string, tags []string, from, until timestamp) (*strset.Set, error) {
+	minDay, maxDay := from.UnixDay(), until.UnixDay()
+	scope, err := b.scanIndex("m:"+metric, minDay, maxDay)
 	if err != nil {
 		return nil, err
 	}
@@ -108,29 +112,28 @@ func (b *DB) scopeKeys(metric string, tags []string, min, max int64) (*strset.Se
 		return scope, nil
 	}
 
-	filters := makeSet()
+	filters := strset.New(10)
 	for _, tag := range tags {
-		main := filters
-		sub, err := b.scanIndex("t:"+tag, min, max)
+		sub, err := b.scanIndex("t:"+tag, minDay, maxDay)
 		if err != nil {
 			return nil, err
 		}
-		filters = main.Union(sub)
-		setPool.Put(main)
-		setPool.Put(sub)
+		filters = filters.Union(sub)
 	}
-
-	result := filters.Intersect(scope)
-	setPool.Put(filters)
-	setPool.Put(scope)
-	return result, nil
+	return scope.Intersect(filters), nil
 }
 
-// scans a redis zset and sums values into acc
-func (b *DB) scanZSumInto(acc map[time.Time]int64, key string, min, max time.Time, by time.Duration) (err error) {
-	var cursor int64
+// scans a series and applies callback to each result
+func (b *DB) scanSeries(key string, from, until time.Time, callback func(Result) error) (err error) {
+	series, err := parseSeries(key)
+	if err != nil {
+		return err
+	}
 
-	base := time.Unix(parseUnixDay(key)*86400, 0).UTC()
+	base := series.StartTime()
+	min, max := from.Truncate(time.Minute), until.Truncate(time.Minute)
+
+	var cursor int64
 	for {
 		var pairs []string
 		cursor, pairs, err = b.client.ZScan(key, cursor, "", 100).Result()
@@ -139,14 +142,16 @@ func (b *DB) scanZSumInto(acc map[time.Time]int64, key string, min, max time.Tim
 		}
 
 		for i := 0; i < len(pairs); i += 2 {
-			mins, _ := strconv.ParseInt(pairs[i], 10, 64)
-			tstamp := base.Add(time.Duration(mins) * time.Minute)
-			if tstamp.Before(min) || tstamp.After(max) {
+			offset, _ := strconv.ParseInt(pairs[i], 10, 64)
+			timestamp := base.Add(time.Duration(offset) * time.Minute)
+			if timestamp.Before(min) || timestamp.After(max) {
 				continue
 			}
 
 			value, _ := strconv.ParseInt(pairs[i+1], 10, 64)
-			acc[tstamp.Truncate(by)] += value
+			if err = callback(Result{timestamp, value}); err != nil {
+				return
+			}
 		}
 
 		if cursor == 0 {
@@ -157,8 +162,8 @@ func (b *DB) scanZSumInto(acc map[time.Time]int64, key string, min, max time.Tim
 }
 
 // scans a redis index via SSCAN to retrieve all keys
-func (b *DB) scanIndex(key string, min, max int64) (matches *strset.Set, err error) {
-	matches = makeSet()
+func (b *DB) scanIndex(key string, minDay, maxDay int64) (matches *strset.Set, err error) {
+	matches = strset.New(10)
 	var cursor int64
 
 	for {
@@ -169,7 +174,10 @@ func (b *DB) scanIndex(key string, min, max int64) (matches *strset.Set, err err
 		}
 
 		for _, member := range members {
-			if num := parseUnixDay(member); num >= min && num <= max {
+			var series series
+			if series, err = parseSeries(member); err != nil {
+				return
+			} else if series.unixDay >= minDay && series.unixDay <= maxDay {
 				matches.Add(member)
 			}
 		}
@@ -188,22 +196,12 @@ func (b *DB) expire(key string, pipe *redis.Pipeline, max int64) error {
 	}
 
 	for _, member := range members {
-		if num := parseUnixDay(member); num < max {
+		ser, err := parseSeries(member)
+		if err != nil {
+			return err
+		} else if ser.unixDay < max {
 			pipe.SRem(key, member)
 		}
 	}
 	return nil
-}
-
-// --------------------------------------------------------------------
-
-var setPool sync.Pool
-
-func makeSet() *strset.Set {
-	if v := setPool.Get(); v != nil {
-		set := v.(*strset.Set)
-		set.Clear()
-		return set
-	}
-	return strset.New(100)
 }

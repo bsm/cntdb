@@ -8,21 +8,39 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Helpers", func() {
+var _ = Describe("series", func() {
 
-	It("should parse epoch day", func() {
+	It("should parse series", func() {
 		tests := []struct {
-			str string
-			num int64
+			key string
+			ser series
 		}{
-			{"s:cpu,b,c:16367", 16367},
-			{"s:cpu,b,c:", 0},
-			{"s:cpu,b,c: 2134", 0},
-			{"", 0},
+			{"s:cpu,b,c:16367", series{"cpu", []string{"b", "c"}, 16367}},
+			{"s:cpu:16367", series{"cpu", []string{}, 16367}},
+			{"s:x:2", series{"x", []string{}, 2}},
 		}
 
 		for _, test := range tests {
-			Expect(parseUnixDay(test.str)).To(Equal(test.num), "for %+v", test)
+			ser, err := parseSeries(test.key)
+			Expect(err).NotTo(HaveOccurred(), "for %s", test.key)
+			Expect(ser).To(Equal(test.ser), "for %s", test.key)
+		}
+	})
+
+	It("should fail to parse bad keys", func() {
+		tests := []string{
+			"x:cpu,b,c:16367",
+			"s:cpu,b,c:",
+			"s:cpu:b,c",
+			"s:cpu,b,c: 2134",
+			"s::2",
+			"s:x:",
+			"",
+		}
+
+		for _, test := range tests {
+			_, err := parseSeries(test)
+			Expect(err).To(Equal(errInvalidKey), "for %s", test)
 		}
 	})
 
