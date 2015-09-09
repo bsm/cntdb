@@ -16,16 +16,16 @@ type Criteria struct {
 
 func (c *Criteria) getFrom() timestamp {
 	if c == nil || c.From.IsZero() {
-		return timestamp{time.Now().Add(-time.Hour).UTC()}
+		return timestamp{time.Now().Add(-time.Hour)}
 	}
-	return timestamp{c.From.UTC()}
+	return timestamp{c.From}
 }
 
 func (c *Criteria) getUntil() timestamp {
 	if c == nil || c.Until.IsZero() {
-		return timestamp{time.Now().UTC()}
+		return timestamp{time.Now()}
 	}
-	return timestamp{c.Until.UTC()}
+	return timestamp{c.Until}
 }
 
 func (c *Criteria) getInterval() time.Duration {
@@ -55,7 +55,7 @@ type series struct {
 }
 
 func (s series) StartTime() time.Time {
-	return time.Unix(s.unixDay*86400, 0).UTC()
+	return time.Unix(s.unixDay*86400, 0)
 }
 
 func parseSeries(key string) (s series, err error) {

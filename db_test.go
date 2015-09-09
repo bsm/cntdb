@@ -21,8 +21,42 @@ var _ = Describe("DB", func() {
 		subject.client.FlushDb()
 	})
 
-	It("should write points", func() {
-		subject.WritePoints([]Point{
+	It("should set", func() {
+		subject.Set([]Point{
+			point("cpu,host:a,dc:x 1414141414 2"),
+			point("cpu,dc:x,host:a 1414141414 4"),
+			point("cpu,host:b,dc:x 1414141414 3"),
+			point("cpu,host:a,dc:x 1414141414 1"),
+		})
+
+		Expect(subject.client.Keys("*").Val()).To(ConsistOf([]string{
+			"s:cpu,dc:x,host:b:16367",
+			"s:cpu,dc:x,host:a:16367",
+			"m:cpu",
+			"t:host:b",
+			"t:host:a",
+			"t:dc:x",
+		}))
+		Expect(subject.client.TTL("s:cpu,dc:x,host:a:16367").Val()).To(BeNumerically("~", storageTTL, time.Second))
+		Expect(subject.client.TTL("s:cpu,dc:x,host:b:16367").Val()).To(BeNumerically("~", storageTTL, time.Second))
+
+		Expect(subject.client.SMembers("m:cpu").Val()).To(ConsistOf([]string{"s:cpu,dc:x,host:a:16367", "s:cpu,dc:x,host:b:16367"}))
+		Expect(subject.client.SMembers("t:host:a").Val()).To(ConsistOf([]string{"s:cpu,dc:x,host:a:16367"}))
+		Expect(subject.client.SMembers("t:host:b").Val()).To(ConsistOf([]string{"s:cpu,dc:x,host:b:16367"}))
+		Expect(subject.client.SMembers("t:dc:x").Val()).To(ConsistOf([]string{"s:cpu,dc:x,host:a:16367", "s:cpu,dc:x,host:b:16367"}))
+
+		v1 := subject.client.ZRangeWithScores("s:cpu,dc:x,host:a:16367", 0, -1).Val()
+		Expect(v1).To(HaveLen(1))
+		Expect(v1[0].Score).To(Equal(1.0))
+		Expect(v1[0].Member).To(Equal("0543"))
+		v2 := subject.client.ZRangeWithScores("s:cpu,dc:x,host:b:16367", 0, -1).Val()
+		Expect(v2).To(HaveLen(1))
+		Expect(v2[0].Score).To(Equal(3.0))
+		Expect(v2[0].Member).To(Equal("0543"))
+	})
+
+	It("should increment", func() {
+		subject.Increment([]Point{
 			point("cpu,host:a,dc:x 1414141414 2"),
 			point("cpu,dc:x,host:a 1414141414 4"),
 			point("cpu,host:b,dc:x 1414141414 3"),
@@ -56,7 +90,7 @@ var _ = Describe("DB", func() {
 	})
 
 	It("should scope keys", func() {
-		subject.WritePoints([]Point{
+		subject.Set([]Point{
 			point("cpu,a,b 1414141414 1"),
 			point("cpu,a,c 1414141414 1"),
 			point("cpu,b,c 1414141414 1"),
@@ -94,7 +128,7 @@ var _ = Describe("DB", func() {
 	})
 
 	It("should query results", func() {
-		subject.WritePoints([]Point{
+		subject.Set([]Point{
 			point("cpu,a,b 1414141200 1"),  // 2014-10-24T09:00:00Z
 			point("cpu,a,c 1414141300 2"),  // 2014-10-24T09:01:40Z
 			point("cpu,a,c 1414142000 4"),  // 2014-10-24T09:13:20Z
@@ -162,8 +196,29 @@ var _ = Describe("DB", func() {
 		}
 	})
 
+	It("should query points", func() {
+		subject.Set([]Point{
+			point("cpu,a,b 1414141200 1"), // 2014-10-24T09:00:00Z
+			point("cpu,a,c 1414141300 2"), // 2014-10-24T09:01:40Z
+			point("cpu,a,c 1414142000 4"), // 2014-10-24T09:13:20Z
+			point("cpu,b,c 1414146000 8"), // 2014-10-24T10:20:00Z
+		})
+
+		points, err := subject.QueryPoints(&Criteria{
+			Metric:   "cpu",
+			From:     xmltime("2014-10-24T09:00:00Z"),
+			Interval: time.Hour,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(points).To(ConsistOf([]Point{
+			point("cpu,a,b 1414141200 1"), // 2014-10-24T09:00:00Z
+			point("cpu,a,c 1414141200 6"), // 2014-10-24T09:01:40Z
+			point("cpu,b,c 1414144800 8"), // 2014-10-24T10:20:00Z
+		}))
+	})
+
 	It("should compact", func() {
-		subject.WritePoints([]Point{
+		subject.Set([]Point{
 			point("cpu,a,b 1414141414 1"),
 			point("cpu,a,c 1818181818 2"),
 			point("cpu,b,c 1414141414 4"),
@@ -229,25 +284,25 @@ func benchWrites(b *testing.B, batchSize int, tagsMap map[string]int) {
 			batch[n] = point
 		}
 
-		if err := client.WritePoints(batch); err != nil {
+		if err := client.Set(batch); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkWritePoints_1kMetrics_HugeBatches(b *testing.B) {
+func BenchmarkSet_1kMetrics_HugeBatches(b *testing.B) {
 	benchWrites(b, 10000, map[string]int{"host:srv-%d": 10, "port:%d": 10, "inst:m%d": 10})
 }
 
-func BenchmarkWritePoints_1kMetrics_LargeBatches(b *testing.B) {
+func BenchmarkSet_1kMetrics_LargeBatches(b *testing.B) {
 	benchWrites(b, 1000, map[string]int{"host:srv-%d": 10, "port:%d": 10, "inst:m%d": 10})
 }
 
-func BenchmarkWritePoints_1kMetrics_SmallBatches(b *testing.B) {
+func BenchmarkSet_1kMetrics_SmallBatches(b *testing.B) {
 	benchWrites(b, 100, map[string]int{"host:srv-%d": 10, "port:%d": 1, "inst:m%d": 10})
 }
 
-func BenchmarkWritePoints_100Metrics_LargeBatches(b *testing.B) {
+func BenchmarkSet_100Metrics_LargeBatches(b *testing.B) {
 	benchWrites(b, 1000, map[string]int{"host:srv-%d": 10, "port:%d": 1, "inst:m%d": 10})
 }
 
@@ -255,7 +310,7 @@ func BenchmarkQuery_Parallel(b *testing.B) {
 	client := NewDB("127.0.0.1:6379", 9)
 	defer client.client.FlushDb()
 
-	err := client.WritePoints([]Point{
+	err := client.Set([]Point{
 		point("cpu,a,b 1414141414 1"),
 		point("cpu,a,c 1414141414 2"),
 		point("cpu,b,c 1414141414 4"),

@@ -85,6 +85,10 @@ func (p Point) String() string {
 	return fmt.Sprintf("%s %d %d\n", p.Series(), p.timestamp.Unix(), p.count)
 }
 
+func (p Point) uID() string {
+	return fmt.Sprintf("%s-%d-%d", p.Series(), p.timestamp.UnixDay(), p.timestamp.MinuteOfDay())
+}
+
 func (p Point) keyName() string {
 	return fmt.Sprintf("s:%s:%d", p.Series(), p.timestamp.UnixDay())
 }

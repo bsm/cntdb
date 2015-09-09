@@ -58,7 +58,7 @@ func point(s string) Point {
 
 func xmltime(s string) time.Time {
 	t, _ := time.Parse(time.RFC3339, s)
-	return t
+	return t.Local()
 }
 
 func TestSuite(t *testing.T) {

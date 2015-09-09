@@ -48,29 +48,49 @@ func (b *DB) Compact() error {
 	return err
 }
 
-// WritePoints adds points to the DB
-func (b *DB) WritePoints(points []Point) error {
-	pipe := b.client.Pipeline()
-	defer pipe.Close()
+// Set sets point values
+func (b *DB) Set(points []Point) error {
+	return b.writePoints(points, func(pipe *redis.Pipeline, key, member string, value int64) {
+		pipe.ZAdd(key, redis.Z{Member: member, Score: float64(value)})
+	})
+}
 
-	seen := make(map[string]struct{}, len(points))
-	for _, pt := range points {
-		key := pt.keyName()
-		pipe.ZIncrBy(key, float64(pt.count), pt.memberName())
-		seen[key] = struct{}{}
+// Increment increments point values to the DB
+func (b *DB) Increment(points []Point) error {
+	return b.writePoints(points, func(pipe *redis.Pipeline, key, member string, value int64) {
+		pipe.ZIncrBy(key, float64(value), member)
+	})
+}
 
-		pipe.SAdd("m:"+pt.metric, key)
-		for _, tag := range pt.tags {
-			pipe.SAdd("t:"+tag, key)
+// QueryPoints performs a query and returns points
+func (b *DB) QueryPoints(c *Criteria) ([]Point, error) {
+	from, until := c.getFrom(), c.getUntil()
+	interval := c.getInterval()
+	keys, err := b.scopeKeys(c.Metric, c.Tags, from, until)
+	if err != nil {
+		return nil, err
+	}
+
+	index := make(map[string]Point, 100)
+	err = b.scanSeries(keys.Slice(), from, until, func(s series, ts time.Time, val int64) error {
+		point, err := NewPointAt(s.metric, s.tags, ts.Truncate(interval), val)
+		if err != nil {
+			return err
 		}
-	}
 
-	for key, _ := range seen {
-		pipe.Expire(key, storageTTL)
-	}
+		pointID := point.uID()
+		if ex, ok := index[pointID]; ok {
+			point.count += ex.count
+		}
+		index[pointID] = point
+		return nil
+	})
 
-	_, err := pipe.Exec()
-	return err
+	points := make([]Point, 0, len(index))
+	for _, point := range index {
+		points = append(points, point)
+	}
+	return points, err
 }
 
 func (b *DB) Query(c *Criteria) (ResultSet, error) {
@@ -83,8 +103,8 @@ func (b *DB) Query(c *Criteria) (ResultSet, error) {
 	}
 
 	acc := make(map[time.Time]int64, 100)
-	if err := b.scanSeries(keys.Slice(), from.Time, until.Time, func(r Result) error {
-		acc[r.Timestamp.Truncate(interval)] += r.Value
+	if err := b.scanSeries(keys.Slice(), from, until, func(_ series, ts time.Time, val int64) error {
+		acc[ts.Truncate(interval)] += val
 		return nil
 	}); err != nil {
 		return nil, err
@@ -122,7 +142,7 @@ func (b *DB) scopeKeys(metric string, tags []string, from, until timestamp) (*st
 }
 
 // scans multiple series and applies callback to each result
-func (b *DB) scanSeries(keys []string, from, until time.Time, callback func(Result) error) error {
+func (b *DB) scanSeries(keys []string, from, until timestamp, callback func(series, time.Time, int64) error) error {
 	min, max := from.Truncate(time.Minute), until.Truncate(time.Minute)
 
 	pipe := b.client.Pipeline()
@@ -156,7 +176,7 @@ func (b *DB) scanSeries(keys []string, from, until time.Time, callback func(Resu
 				continue
 			}
 
-			if err := callback(Result{timestamp, int64(pair.Score)}); err != nil {
+			if err := callback(ser, timestamp, int64(pair.Score)); err != nil {
 				return err
 			}
 		}
@@ -189,6 +209,31 @@ func (b *DB) scanIndex(key string, minDay, maxDay int64) (matches *strset.Set, e
 		}
 	}
 	return
+}
+
+// writes points
+func (b *DB) writePoints(points []Point, forEach func(*redis.Pipeline, string, string, int64)) error {
+	pipe := b.client.Pipeline()
+	defer pipe.Close()
+
+	seen := make(map[string]struct{}, len(points))
+	for _, pt := range points {
+		key := pt.keyName()
+		forEach(pipe, key, pt.memberName(), pt.count)
+		seen[key] = struct{}{}
+
+		pipe.SAdd("m:"+pt.metric, key)
+		for _, tag := range pt.tags {
+			pipe.SAdd("t:"+tag, key)
+		}
+	}
+
+	for key := range seen {
+		pipe.Expire(key, storageTTL)
+	}
+
+	_, err := pipe.Exec()
+	return err
 }
 
 // expire appends expiration commands to a redis pipeline
