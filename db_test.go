@@ -212,8 +212,38 @@ var _ = Describe("DB", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(points).To(ConsistOf([]Point{
 			point("cpu,a,b 1414141200 1"), // 2014-10-24T09:00:00Z
-			point("cpu,a,c 1414141200 6"), // 2014-10-24T09:01:40Z
-			point("cpu,b,c 1414144800 8"), // 2014-10-24T10:20:00Z
+			point("cpu,a,c 1414141200 6"), // 2014-10-24T09:00:00Z
+			point("cpu,b,c 1414144800 8"), // 2014-10-24T10:00:00Z
+		}))
+	})
+
+	It("should query-store", func() {
+		subject.Set([]Point{
+			point("cpu,a,b 1414141200 1"), // 2014-10-24T09:00:00Z
+			point("cpu,a,c 1414141300 2"), // 2014-10-24T09:01:40Z
+			point("cpu,a,c 1414142000 4"), // 2014-10-24T09:13:20Z
+			point("cpu,b,c 1414146000 8"), // 2014-10-24T10:20:00Z
+
+			point("cpu.1h,b,c 1414144800 7"), // 2014-10-24T10:00:00Z
+		})
+
+		err := subject.QueryStore("cpu.1h", &Criteria{
+			Metric:   "cpu",
+			From:     xmltime("2014-10-24T08:00:00Z"),
+			Interval: time.Hour,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		points, err := subject.QueryPoints(&Criteria{
+			Metric:   "cpu.1h",
+			From:     xmltime("2014-10-24T08:00:00Z"),
+			Interval: time.Minute,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(points).To(ConsistOf([]Point{
+			point("cpu.1h,a,b 1414141200 1"), // 2014-10-24T09:00:00Z
+			point("cpu.1h,a,c 1414141200 6"), // 2014-10-24T09:00:00Z
+			point("cpu.1h,b,c 1414144800 8"), // 2014-10-24T10:00:00Z
 		}))
 	})
 

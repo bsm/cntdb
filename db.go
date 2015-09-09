@@ -62,6 +62,18 @@ func (b *DB) Increment(points []Point) error {
 	})
 }
 
+// QueryStore performs a query and writes the results to a different metric
+func (b *DB) QueryStore(targetMetric string, c *Criteria) error {
+	points, err := b.QueryPoints(c)
+	if err != nil {
+		return err
+	}
+	for i := range points {
+		points[i].metric = targetMetric
+	}
+	return b.Set(points)
+}
+
 // QueryPoints performs a query and returns points
 func (b *DB) QueryPoints(c *Criteria) ([]Point, error) {
 	from, until := c.getFrom(), c.getUntil()
