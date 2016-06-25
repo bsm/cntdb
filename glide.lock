@@ -1,5 +1,5 @@
 hash: 89d9e98c284e72cfcd44c1ce60d76f7da7411f4a2f1f56e8eff22765c22d944d
-updated: 2016-06-25T10:33:52.357713108+01:00
+updated: 2016-06-25T11:33:17.240986205+01:00
 imports:
 - name: github.com/bsm/strset
   version: a67388d9eb5fb9cb7440acf741737887cdcc484d
@@ -13,6 +13,12 @@ imports:
   - internal/hashtag
   - internal/pool
 testImports:
+- name: github.com/golang/protobuf
+  version: 0c1f6d65b5a189c2250d10e71a5506f06f9fa0a0
+  subpackages:
+  - proto
+  - proto/testdata
+  - ptypes/any
 - name: github.com/onsi/ginkgo
   version: 059cec02d342bab423425a99b191186a03255e9e
   subpackages:
@@ -26,10 +32,13 @@ testImports:
   - reporters
   - reporters/stenographer
   - types
-  - internal/containernode
+  - ginkgo/convert
+  - ginkgo/interrupthandler
+  - ginkgo/nodot
+  - ginkgo/testrunner
+  - ginkgo/testsuite
+  - ginkgo/watch
   - internal/leafnodes
-  - internal/spec
-  - internal/specrunner
 - name: github.com/onsi/gomega
   version: 0df7b7fdb38123c12a1f569f0affb2c2a7bd72cf
   subpackages:
@@ -39,7 +48,6 @@ testImports:
   - matchers
   - types
   - internal/oraclematcher
-  - format
   - matchers/support/goraph/bipartitegraph
   - matchers/support/goraph/edge
   - matchers/support/goraph/node
