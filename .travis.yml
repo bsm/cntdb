@@ -1,4 +1,6 @@
 language: go
+services: redis
+sudo: false
 go:
   - 1.6
   - 1.5
