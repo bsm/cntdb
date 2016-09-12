@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/bsm/strset"
-	"gopkg.in/redis.v3"
+	"gopkg.in/redis.v4"
 )
 
 var storageTTL = 35 * 24 * time.Hour
@@ -15,10 +15,10 @@ var storageTTL = 35 * 24 * time.Hour
 type DB struct {
 	client *redis.Client
 
-	cursor int64 // compaction cursor
+	cursor uint64 // compaction cursor
 }
 
-func NewDB(addr string, db int64) *DB {
+func NewDB(addr string, db int) *DB {
 	client := redis.NewClient(&redis.Options{
 		Addr: addr,
 		DB:   db,
@@ -32,11 +32,11 @@ func (b *DB) Compact() error {
 	pipe := b.client.Pipeline()
 	defer pipe.Close()
 
-	cursor, keys, err := b.client.Scan(atomic.LoadInt64(&b.cursor), "[mt]:*", 20).Result()
+	keys, cursor, err := b.client.Scan(atomic.LoadUint64(&b.cursor), "[mt]:*", 20).Result()
 	if err != nil {
 		return err
 	}
-	atomic.StoreInt64(&b.cursor, cursor)
+	atomic.StoreUint64(&b.cursor, cursor)
 
 	for _, key := range keys {
 		if err := b.expire(key, pipe, max); err != nil {
@@ -197,30 +197,22 @@ func (b *DB) scanSeries(keys []string, from, until timestamp, callback func(seri
 }
 
 // scans a redis index via SSCAN to retrieve all keys
-func (b *DB) scanIndex(key string, minDay, maxDay int64) (matches *strset.Set, err error) {
-	matches = strset.New(10)
-	var cursor int64
-
-	for {
-		var members []string
-		cursor, members, err = b.client.SScan(key, cursor, "", 100).Result()
+func (b *DB) scanIndex(key string, minDay, maxDay int64) (*strset.Set, error) {
+	matches := strset.New(10)
+	iter := b.client.SScan(key, 0, "", 1000).Iterator()
+	for iter.Next() {
+		member := iter.Val()
+		series, err := parseSeries(member)
 		if err != nil {
-			return
-		}
-
-		for _, member := range members {
-			var series series
-			if series, err = parseSeries(member); err != nil {
-				return
-			} else if series.unixDay >= minDay && series.unixDay <= maxDay {
-				matches.Add(member)
-			}
-		}
-		if cursor == 0 {
-			break
+			return nil, err
+		} else if series.unixDay >= minDay && series.unixDay <= maxDay {
+			matches.Add(member)
 		}
 	}
-	return
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	return matches, nil
 }
 
 // writes points
