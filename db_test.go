@@ -1,6 +1,7 @@
 package cntdb
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -121,7 +122,7 @@ var _ = Describe("DB", func() {
 
 		for _, test := range tests {
 			from, until := unixTimestamp(test.from), unixTimestamp(1515151515)
-			keys, err := subject.scopeKeys(test.met, test.tags, from, until)
+			keys, err := subject.scopeKeys(context.Background(), test.met, test.tags, from, until)
 			Expect(err).NotTo(HaveOccurred(), "for %+v", test)
 			Expect(keys.Slice()).To(Equal(test.res), "for %+v", test)
 		}
@@ -190,10 +191,20 @@ var _ = Describe("DB", func() {
 		}
 
 		for _, test := range tests {
-			res, err := subject.Query(&test.crit)
+			res, err := subject.Query(context.Background(), &test.crit)
 			Expect(err).NotTo(HaveOccurred(), "for %+v", test.crit)
 			Expect(res).To(Equal(test.res), "for %+v", test.crit)
 		}
+	})
+
+	It("should query with context", func() {
+		ctx, _ := context.WithDeadline(context.Background(), time.Now())
+		_, err := subject.Query(ctx, &Criteria{
+			Metric:   "cpu",
+			From:     xmltime("2014-10-24T09:00:00Z"),
+			Interval: time.Hour,
+		})
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("should query points", func() {
@@ -204,7 +215,7 @@ var _ = Describe("DB", func() {
 			point("cpu,b,c 1414146000 8"), // 2014-10-24T10:20:00Z
 		})
 
-		points, err := subject.QueryPoints(&Criteria{
+		points, err := subject.QueryPoints(context.Background(), &Criteria{
 			Metric:   "cpu",
 			From:     xmltime("2014-10-24T09:00:00Z"),
 			Interval: time.Hour,
@@ -227,14 +238,14 @@ var _ = Describe("DB", func() {
 			point("cpu.1h,b,c 1414144800 7"), // 2014-10-24T10:00:00Z
 		})
 
-		err := subject.QueryStore("cpu.1h", &Criteria{
+		err := subject.QueryStore(context.Background(), "cpu.1h", &Criteria{
 			Metric:   "cpu",
 			From:     xmltime("2014-10-24T08:00:00Z"),
 			Interval: time.Hour,
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		points, err := subject.QueryPoints(&Criteria{
+		points, err := subject.QueryPoints(context.Background(), &Criteria{
 			Metric:   "cpu.1h",
 			From:     xmltime("2014-10-24T08:00:00Z"),
 			Interval: time.Minute,
@@ -267,7 +278,7 @@ var _ = Describe("DB", func() {
 			"t:b",
 			"t:c",
 		}))
-		Expect(subject.Compact()).NotTo(HaveOccurred())
+		Expect(subject.Compact(context.Background())).NotTo(HaveOccurred())
 		Expect(subject.client.Keys("*").Val()).To(ConsistOf([]string{
 			"s:cpu,a,b:16367",
 			"s:cpu,b,c:16367",
@@ -354,7 +365,7 @@ func BenchmarkQuery_Parallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, err := client.Query(&Criteria{
+			_, err := client.Query(context.Background(), &Criteria{
 				Metric: "cpu",
 				From:   time.Unix(1414141400, 0),
 			})

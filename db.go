@@ -1,6 +1,7 @@
 package cntdb
 
 import (
+	"context"
 	"sort"
 	"strconv"
 	"sync/atomic"
@@ -27,7 +28,7 @@ func NewDB(addr string, db int) *DB {
 }
 
 // Compact runs a compaction cycle
-func (b *DB) Compact() error {
+func (b *DB) Compact(ctx context.Context) error {
 	max := timestamp{time.Now().Add(-storageTTL)}.UnixDay()
 	pipe := b.client.Pipeline()
 	defer pipe.Close()
@@ -39,6 +40,12 @@ func (b *DB) Compact() error {
 	atomic.StoreUint64(&b.cursor, cursor)
 
 	for _, key := range keys {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		if err := b.expire(key, pipe, max); err != nil {
 			return err
 		}
@@ -63,8 +70,8 @@ func (b *DB) Increment(points []Point) error {
 }
 
 // QueryStore performs a query and writes the results to a different metric
-func (b *DB) QueryStore(targetMetric string, c *Criteria) error {
-	points, err := b.QueryPoints(c)
+func (b *DB) QueryStore(ctx context.Context, targetMetric string, c *Criteria) error {
+	points, err := b.QueryPoints(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -75,16 +82,16 @@ func (b *DB) QueryStore(targetMetric string, c *Criteria) error {
 }
 
 // QueryPoints performs a query and returns points
-func (b *DB) QueryPoints(c *Criteria) ([]Point, error) {
+func (b *DB) QueryPoints(ctx context.Context, c *Criteria) ([]Point, error) {
 	from, until := c.getFrom(), c.getUntil()
 	interval := c.getInterval()
-	keys, err := b.scopeKeys(c.Metric, c.Tags, from, until)
+	keys, err := b.scopeKeys(ctx, c.Metric, c.Tags, from, until)
 	if err != nil {
 		return nil, err
 	}
 
 	index := make(map[string]Point, 100)
-	err = b.scanSeries(keys.Slice(), from, until, func(s series, ts time.Time, val int64) error {
+	err = b.scanSeries(ctx, keys.Slice(), from, until, func(s series, ts time.Time, val int64) error {
 		point, err := NewPointAt(s.metric, s.tags, ts.Truncate(interval), val)
 		if err != nil {
 			return err
@@ -105,17 +112,17 @@ func (b *DB) QueryPoints(c *Criteria) ([]Point, error) {
 	return points, err
 }
 
-func (b *DB) Query(c *Criteria) (ResultSet, error) {
+func (b *DB) Query(ctx context.Context, c *Criteria) (ResultSet, error) {
 	from, until := c.getFrom(), c.getUntil()
 	interval := c.getInterval()
 
-	keys, err := b.scopeKeys(c.Metric, c.Tags, from, until)
+	keys, err := b.scopeKeys(ctx, c.Metric, c.Tags, from, until)
 	if err != nil {
 		return nil, err
 	}
 
 	acc := make(map[time.Time]int64, 100)
-	if err := b.scanSeries(keys.Slice(), from, until, func(_ series, ts time.Time, val int64) error {
+	if err := b.scanSeries(ctx, keys.Slice(), from, until, func(_ series, ts time.Time, val int64) error {
 		acc[ts.Truncate(interval)] += val
 		return nil
 	}); err != nil {
@@ -131,9 +138,9 @@ func (b *DB) Query(c *Criteria) (ResultSet, error) {
 }
 
 // scope all series keys that are relevant for the query
-func (b *DB) scopeKeys(metric string, tags []string, from, until timestamp) (*strset.Set, error) {
+func (b *DB) scopeKeys(ctx context.Context, metric string, tags []string, from, until timestamp) (*strset.Set, error) {
 	minDay, maxDay := from.UnixDay(), until.UnixDay()
-	scope, err := b.scanIndex("m:"+metric, minDay, maxDay)
+	scope, err := b.scanIndex(ctx, "m:"+metric, minDay, maxDay)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +151,7 @@ func (b *DB) scopeKeys(metric string, tags []string, from, until timestamp) (*st
 
 	filters := strset.New(10)
 	for _, tag := range tags {
-		sub, err := b.scanIndex("t:"+tag, minDay, maxDay)
+		sub, err := b.scanIndex(ctx, "t:"+tag, minDay, maxDay)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +161,7 @@ func (b *DB) scopeKeys(metric string, tags []string, from, until timestamp) (*st
 }
 
 // scans multiple series and applies callback to each result
-func (b *DB) scanSeries(keys []string, from, until timestamp, callback func(series, time.Time, int64) error) error {
+func (b *DB) scanSeries(ctx context.Context, keys []string, from, until timestamp, callback func(series, time.Time, int64) error) error {
 	min, max := from.Truncate(time.Minute), until.Truncate(time.Minute)
 
 	pipe := b.client.Pipeline()
@@ -164,6 +171,12 @@ func (b *DB) scanSeries(keys []string, from, until timestamp, callback func(seri
 	series := make([]series, len(keys))
 	cmds := make([]*redis.ZSliceCmd, len(keys))
 	for n, key := range keys {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		ser, err := parseSeries(key)
 		if err != nil {
 			return err
@@ -197,10 +210,16 @@ func (b *DB) scanSeries(keys []string, from, until timestamp, callback func(seri
 }
 
 // scans a redis index via SSCAN to retrieve all keys
-func (b *DB) scanIndex(key string, minDay, maxDay int64) (*strset.Set, error) {
+func (b *DB) scanIndex(ctx context.Context, key string, minDay, maxDay int64) (*strset.Set, error) {
 	matches := strset.New(10)
 	iter := b.client.SScan(key, 0, "", 1000).Iterator()
 	for iter.Next() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		member := iter.Val()
 		series, err := parseSeries(member)
 		if err != nil {
