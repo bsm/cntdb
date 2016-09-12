@@ -198,13 +198,15 @@ var _ = Describe("DB", func() {
 	})
 
 	It("should query with context", func() {
-		ctx, _ := context.WithDeadline(context.Background(), time.Now())
+		subject.Set([]Point{point("cpu,a,b 1414141200 1")})
+
+		ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(-time.Millisecond))
 		_, err := subject.Query(ctx, &Criteria{
 			Metric:   "cpu",
 			From:     xmltime("2014-10-24T09:00:00Z"),
 			Interval: time.Hour,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).To(Equal(context.DeadlineExceeded))
 	})
 
 	It("should query points", func() {
