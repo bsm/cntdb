@@ -1,7 +1,7 @@
 language: go
 services: redis
 go:
-  - 1.7.6
+  - 1.7.5
   - 1.8
 install:
   - go get -u github.com/Masterminds/glide
