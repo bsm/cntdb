@@ -14,6 +14,7 @@ var (
 	errInvalidTag    = errors.New("cntdb: invalid tag name")
 	errTooManyTags   = errors.New("cntdb: too many tags")
 	errBadFormat     = errors.New("cntdb: bad format")
+	errInvalidKey    = errors.New("cntdb: invalid key type")
 )
 
 type Point struct {
@@ -82,6 +83,10 @@ func (p Point) Series() string {
 
 func (p Point) String() string {
 	return fmt.Sprintf("%s %d %d\n", p.Series(), p.timestamp.Unix(), p.count)
+}
+
+func (p Point) uID() string {
+	return fmt.Sprintf("%s-%d-%d", p.Series(), p.timestamp.UnixDay(), p.timestamp.MinuteOfDay())
 }
 
 func (p Point) keyName() string {

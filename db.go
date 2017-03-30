@@ -1,14 +1,14 @@
 package cntdb
 
 import (
+	"context"
 	"sort"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/bsm/strset"
-	"gopkg.in/redis.v3"
+	"gopkg.in/redis.v4"
 )
 
 var storageTTL = 35 * 24 * time.Hour
@@ -16,10 +16,10 @@ var storageTTL = 35 * 24 * time.Hour
 type DB struct {
 	client *redis.Client
 
-	cursor int64 // compaction cursor
+	cursor uint64 // compaction cursor
 }
 
-func NewDB(addr string, db int64) *DB {
+func NewDB(addr string, db int) *DB {
 	client := redis.NewClient(&redis.Options{
 		Addr: addr,
 		DB:   db,
@@ -28,18 +28,24 @@ func NewDB(addr string, db int64) *DB {
 }
 
 // Compact runs a compaction cycle
-func (b *DB) Compact() error {
+func (b *DB) Compact(ctx context.Context) error {
 	max := timestamp{time.Now().Add(-storageTTL)}.UnixDay()
 	pipe := b.client.Pipeline()
 	defer pipe.Close()
 
-	cursor, keys, err := b.client.Scan(atomic.LoadInt64(&b.cursor), "[mt]:*", 20).Result()
+	keys, cursor, err := b.client.Scan(atomic.LoadUint64(&b.cursor), "[mt]:*", 20).Result()
 	if err != nil {
 		return err
 	}
-	atomic.StoreInt64(&b.cursor, cursor)
+	atomic.StoreUint64(&b.cursor, cursor)
 
 	for _, key := range keys {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		if err := b.expire(key, pipe, max); err != nil {
 			return err
 		}
@@ -49,44 +55,78 @@ func (b *DB) Compact() error {
 	return err
 }
 
-// WritePoints adds points to the DB
-func (b *DB) WritePoints(points []Point) error {
-	pipe := b.client.Pipeline()
-	defer pipe.Close()
-
-	seen := make(map[string]struct{}, len(points))
-	for _, pt := range points {
-		key := pt.keyName()
-		pipe.ZIncrBy(key, float64(pt.count), pt.memberName())
-		seen[key] = struct{}{}
-
-		pipe.SAdd("m:"+pt.metric, key)
-		for _, tag := range pt.tags {
-			pipe.SAdd("t:"+tag, key)
-		}
-	}
-
-	for key, _ := range seen {
-		pipe.Expire(key, storageTTL)
-	}
-
-	_, err := pipe.Exec()
-	return err
+// Set sets point values
+func (b *DB) Set(points []Point) error {
+	return b.writePoints(points, func(pipe *redis.Pipeline, key, member string, value int64) {
+		pipe.ZAdd(key, redis.Z{Member: member, Score: float64(value)})
+	})
 }
 
-func (b *DB) Query(c *Criteria) (ResultSet, error) {
+// Increment increments point values to the DB
+func (b *DB) Increment(points []Point) error {
+	return b.writePoints(points, func(pipe *redis.Pipeline, key, member string, value int64) {
+		pipe.ZIncrBy(key, float64(value), member)
+	})
+}
+
+// QueryStore performs a query and writes the results to a different metric
+func (b *DB) QueryStore(ctx context.Context, targetMetric string, c *Criteria) error {
+	points, err := b.QueryPoints(ctx, c)
+	if err != nil {
+		return err
+	}
+	for i := range points {
+		points[i].metric = targetMetric
+	}
+	return b.Set(points)
+}
+
+// QueryPoints performs a query and returns points
+func (b *DB) QueryPoints(ctx context.Context, c *Criteria) ([]Point, error) {
 	from, until := c.getFrom(), c.getUntil()
 	interval := c.getInterval()
-
-	keys, err := b.scopeKeys(c.Metric, c.Tags, from.UnixDay(), until.UnixDay())
+	keys, err := b.scopeKeys(ctx, c.Metric, c.Tags, from, until)
 	if err != nil {
 		return nil, err
 	}
-	defer setPool.Put(keys)
+
+	index := make(map[string]Point, 100)
+	err = b.scanSeries(ctx, keys.Slice(), from, until, func(s series, ts time.Time, val int64) error {
+		point, err := NewPointAt(s.metric, s.tags, ts.Truncate(interval), val)
+		if err != nil {
+			return err
+		}
+
+		pointID := point.uID()
+		if ex, ok := index[pointID]; ok {
+			point.count += ex.count
+		}
+		index[pointID] = point
+		return nil
+	})
+
+	points := make([]Point, 0, len(index))
+	for _, point := range index {
+		points = append(points, point)
+	}
+	return points, err
+}
+
+func (b *DB) Query(ctx context.Context, c *Criteria) (ResultSet, error) {
+	from, until := c.getFrom(), c.getUntil()
+	interval := c.getInterval()
+
+	keys, err := b.scopeKeys(ctx, c.Metric, c.Tags, from, until)
+	if err != nil {
+		return nil, err
+	}
 
 	acc := make(map[time.Time]int64, 100)
-	for _, key := range keys.Slice() {
-		b.scanZSumInto(acc, key, from.Truncate(interval), until.Time, interval)
+	if err := b.scanSeries(ctx, keys.Slice(), from, until, func(_ series, ts time.Time, val int64) error {
+		acc[ts.Truncate(interval)] += val
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	res := make(ResultSet, 0, len(acc))
@@ -97,9 +137,10 @@ func (b *DB) Query(c *Criteria) (ResultSet, error) {
 	return res, err
 }
 
-// scope all keys that are relevant for the query
-func (b *DB) scopeKeys(metric string, tags []string, min, max int64) (*strset.Set, error) {
-	scope, err := b.scanIndex("m:"+metric, min, max)
+// scope all series keys that are relevant for the query
+func (b *DB) scopeKeys(ctx context.Context, metric string, tags []string, from, until timestamp) (*strset.Set, error) {
+	minDay, maxDay := from.UnixDay(), until.UnixDay()
+	scope, err := b.scanIndex(ctx, "m:"+metric, minDay, maxDay)
 	if err != nil {
 		return nil, err
 	}
@@ -108,76 +149,114 @@ func (b *DB) scopeKeys(metric string, tags []string, min, max int64) (*strset.Se
 		return scope, nil
 	}
 
-	filters := makeSet()
+	filters := strset.New(10)
 	for _, tag := range tags {
-		main := filters
-		sub, err := b.scanIndex("t:"+tag, min, max)
+		sub, err := b.scanIndex(ctx, "t:"+tag, minDay, maxDay)
 		if err != nil {
 			return nil, err
 		}
-		filters = main.Union(sub)
-		setPool.Put(main)
-		setPool.Put(sub)
+		filters = filters.Union(sub)
 	}
-
-	result := filters.Intersect(scope)
-	setPool.Put(filters)
-	setPool.Put(scope)
-	return result, nil
+	return scope.Intersect(filters), nil
 }
 
-// scans a redis zset and sums values into acc
-func (b *DB) scanZSumInto(acc map[time.Time]int64, key string, min, max time.Time, by time.Duration) (err error) {
-	var cursor int64
+// scans multiple series and applies callback to each result
+func (b *DB) scanSeries(ctx context.Context, keys []string, from, until timestamp, callback func(series, time.Time, int64) error) error {
+	min, max := from.Truncate(time.Minute), until.Truncate(time.Minute)
 
-	base := time.Unix(parseUnixDay(key)*86400, 0).UTC()
-	for {
-		var pairs []string
-		cursor, pairs, err = b.client.ZScan(key, cursor, "", 100).Result()
-		if err != nil {
-			return
+	pipe := b.client.Pipeline()
+	defer pipe.Close()
+
+	// parse/validate keys, build pipeline
+	series := make([]series, len(keys))
+	cmds := make([]*redis.ZSliceCmd, len(keys))
+	for n, key := range keys {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 
-		for i := 0; i < len(pairs); i += 2 {
-			mins, _ := strconv.ParseInt(pairs[i], 10, 64)
-			tstamp := base.Add(time.Duration(mins) * time.Minute).Truncate(by)
-			if tstamp.Before(min) || tstamp.After(max) {
+		ser, err := parseSeries(key)
+		if err != nil {
+			return err
+		}
+		series[n] = ser
+		cmds[n] = pipe.ZRangeWithScores(key, 0, -1)
+	}
+	_, _ = pipe.Exec()
+
+	// iterate over series, process results
+	for n, ser := range series {
+		base := ser.StartTime()
+		pairs, err := cmds[n].Result()
+		if err != nil {
+			return err
+		}
+
+		for _, pair := range pairs {
+			offset, _ := strconv.ParseInt(pair.Member.(string), 10, 64)
+			timestamp := base.Add(time.Duration(offset) * time.Minute)
+			if timestamp.Before(min) || timestamp.After(max) {
 				continue
 			}
 
-			value, _ := strconv.ParseInt(pairs[i+1], 10, 64)
-			acc[tstamp] += value
-		}
-
-		if cursor == 0 {
-			break
+			if err := callback(ser, timestamp, int64(pair.Score)); err != nil {
+				return err
+			}
 		}
 	}
-	return
+	return nil
 }
 
 // scans a redis index via SSCAN to retrieve all keys
-func (b *DB) scanIndex(key string, min, max int64) (matches *strset.Set, err error) {
-	matches = makeSet()
-	var cursor int64
+func (b *DB) scanIndex(ctx context.Context, key string, minDay, maxDay int64) (*strset.Set, error) {
+	matches := strset.New(10)
+	iter := b.client.SScan(key, 0, "", 1000).Iterator()
+	for iter.Next() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 
-	for {
-		var members []string
-		cursor, members, err = b.client.SScan(key, cursor, "", 100).Result()
+		member := iter.Val()
+		series, err := parseSeries(member)
 		if err != nil {
-			return
-		}
-
-		for _, member := range members {
-			if num := parseUnixDay(member); num >= min && num <= max {
-				matches.Add(member)
-			}
-		}
-		if cursor == 0 {
-			break
+			return nil, err
+		} else if series.unixDay >= minDay && series.unixDay <= maxDay {
+			matches.Add(member)
 		}
 	}
-	return
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	return matches, nil
+}
+
+// writes points
+func (b *DB) writePoints(points []Point, forEach func(*redis.Pipeline, string, string, int64)) error {
+	pipe := b.client.Pipeline()
+	defer pipe.Close()
+
+	seen := make(map[string]struct{}, len(points))
+	for _, pt := range points {
+		key := pt.keyName()
+		forEach(pipe, key, pt.memberName(), pt.count)
+		seen[key] = struct{}{}
+
+		pipe.SAdd("m:"+pt.metric, key)
+		for _, tag := range pt.tags {
+			pipe.SAdd("t:"+tag, key)
+		}
+	}
+
+	for key := range seen {
+		pipe.Expire(key, storageTTL)
+	}
+
+	_, err := pipe.Exec()
+	return err
 }
 
 // expire appends expiration commands to a redis pipeline
@@ -188,22 +267,12 @@ func (b *DB) expire(key string, pipe *redis.Pipeline, max int64) error {
 	}
 
 	for _, member := range members {
-		if num := parseUnixDay(member); num < max {
+		ser, err := parseSeries(member)
+		if err != nil {
+			return err
+		} else if ser.unixDay < max {
 			pipe.SRem(key, member)
 		}
 	}
 	return nil
-}
-
-// --------------------------------------------------------------------
-
-var setPool sync.Pool
-
-func makeSet() *strset.Set {
-	if v := setPool.Get(); v != nil {
-		set := v.(*strset.Set)
-		set.Clear()
-		return set
-	}
-	return strset.New(100)
 }

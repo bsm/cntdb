@@ -16,16 +16,16 @@ type Criteria struct {
 
 func (c *Criteria) getFrom() timestamp {
 	if c == nil || c.From.IsZero() {
-		return timestamp{time.Now().Add(-time.Hour).UTC()}
+		return timestamp{time.Now().Add(-time.Hour)}
 	}
-	return timestamp{c.From.UTC()}
+	return timestamp{c.From}
 }
 
 func (c *Criteria) getUntil() timestamp {
 	if c == nil || c.Until.IsZero() {
-		return timestamp{time.Now().UTC()}
+		return timestamp{time.Now()}
 	}
-	return timestamp{c.Until.UTC()}
+	return timestamp{c.Until}
 }
 
 func (c *Criteria) getInterval() time.Duration {
@@ -48,6 +48,42 @@ func (p ResultSet) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 // --------------------------------------------------------------------
 
+type series struct {
+	metric  string
+	tags    []string
+	unixDay int64
+}
+
+func (s series) StartTime() time.Time {
+	return time.Unix(s.unixDay*86400, 0)
+}
+
+func parseSeries(key string) (s series, err error) {
+	if len(key) < 2 || key[:2] != "s:" {
+		return s, errInvalidKey
+	}
+	key = key[2:]
+
+	piv := strings.LastIndex(key, ":")
+	if piv < 1 || piv+2 > len(key) {
+		return s, errInvalidKey
+	}
+	if s.unixDay, err = strconv.ParseInt(key[piv+1:], 10, 64); err != nil {
+		return s, errInvalidKey
+	}
+
+	parts := strings.Split(key[:piv], ",")
+	if len(parts) < 1 || parts[0] == "" {
+		return s, errInvalidKey
+	}
+
+	s.metric = parts[0]
+	s.tags = parts[1:]
+	return
+}
+
+// --------------------------------------------------------------------
+
 type timestamp struct{ time.Time }
 
 func unixTimestamp(sec int64) timestamp {
@@ -60,12 +96,4 @@ func (t timestamp) UnixDay() int64 {
 
 func (t timestamp) MinuteOfDay() int64 {
 	return t.Unix() % 86400 / 60
-}
-
-func parseUnixDay(key string) int64 {
-	if pos := strings.LastIndex(key, ":"); pos+1 < len(key) {
-		num, _ := strconv.ParseInt(key[pos+1:], 10, 64)
-		return num
-	}
-	return 0
 }

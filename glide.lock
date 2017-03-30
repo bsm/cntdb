@@ -1,0 +1,63 @@
+hash: fa8f7411084d5f8d70212491af52f2b4a1ced5d1b5c2304c77c1947faa436c06
+updated: 2016-09-12T12:14:30.121277927+01:00
+imports:
+- name: github.com/bsm/strset
+  version: a67388d9eb5fb9cb7440acf741737887cdcc484d
+- name: gopkg.in/bsm/ratelimit.v1
+  version: db14e161995a5177acef654cb0dd785e8ee8bc22
+- name: gopkg.in/redis.v4
+  version: 4b0862b5fd0a5ae4e63c76476a64655752d6031b
+  subpackages:
+  - internal
+  - internal/consistenthash
+  - internal/errors
+  - internal/hashtag
+  - internal/pool
+  - internal/proto
+testImports:
+- name: github.com/golang/protobuf
+  version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
+  subpackages:
+  - proto
+  - proto/testdata
+  - ptypes/any
+- name: github.com/onsi/ginkgo
+  version: 7b6efc7d7b052568b49ac02d3141c9d7a5a494a4
+  subpackages:
+  - config
+  - ginkgo/convert
+  - ginkgo/interrupthandler
+  - ginkgo/nodot
+  - ginkgo/testrunner
+  - ginkgo/testsuite
+  - ginkgo/watch
+  - internal/codelocation
+  - internal/failer
+  - internal/leafnodes
+  - internal/remote
+  - internal/suite
+  - internal/testingtproxy
+  - internal/writer
+  - reporters
+  - reporters/stenographer
+  - types
+- name: github.com/onsi/gomega
+  version: d59fa0ac68bb5dd932ee8d24eed631cdd519efc3
+  subpackages:
+  - gstruct/errors
+  - internal/assertion
+  - internal/asyncassertion
+  - internal/oraclematcher
+  - internal/testingtsupport
+  - matchers
+  - matchers/support/goraph/bipartitegraph
+  - matchers/support/goraph/edge
+  - matchers/support/goraph/node
+  - matchers/support/goraph/util
+  - types
+- name: golang.org/x/sys
+  version: 30de6d19a3bd89a5f38ae4028e23aaa5582648af
+  subpackages:
+  - unix
+- name: gopkg.in/yaml.v2
+  version: e4d366fc3c7938e2958e662b4258c7a89e1f0e3e
