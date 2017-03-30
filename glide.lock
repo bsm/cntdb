@@ -1,50 +1,40 @@
-hash: fa8f7411084d5f8d70212491af52f2b4a1ced5d1b5c2304c77c1947faa436c06
-updated: 2016-09-12T12:14:30.121277927+01:00
+hash: 743c2ac5cb40d5f507e98548ec858e3c82555b96a841fa83b4e0f6bcfe77ceff
+updated: 2017-03-30T12:07:26.479821621+01:00
 imports:
 - name: github.com/bsm/strset
   version: a67388d9eb5fb9cb7440acf741737887cdcc484d
-- name: gopkg.in/bsm/ratelimit.v1
-  version: db14e161995a5177acef654cb0dd785e8ee8bc22
-- name: gopkg.in/redis.v4
-  version: 4b0862b5fd0a5ae4e63c76476a64655752d6031b
+- name: github.com/go-redis/redis
+  version: 12c49831d7aa36232d54429fe269525a54c07c88
   subpackages:
   - internal
   - internal/consistenthash
-  - internal/errors
   - internal/hashtag
   - internal/pool
   - internal/proto
 testImports:
-- name: github.com/golang/protobuf
-  version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
-  subpackages:
-  - proto
-  - proto/testdata
-  - ptypes/any
 - name: github.com/onsi/ginkgo
-  version: 7b6efc7d7b052568b49ac02d3141c9d7a5a494a4
+  version: bb93381d543b0e5725244abe752214a110791d01
   subpackages:
   - config
-  - ginkgo/convert
-  - ginkgo/interrupthandler
-  - ginkgo/nodot
-  - ginkgo/testrunner
-  - ginkgo/testsuite
-  - ginkgo/watch
   - internal/codelocation
+  - internal/containernode
   - internal/failer
   - internal/leafnodes
   - internal/remote
+  - internal/spec
+  - internal/specrunner
   - internal/suite
   - internal/testingtproxy
   - internal/writer
   - reporters
   - reporters/stenographer
+  - reporters/stenographer/support/go-colorable
+  - reporters/stenographer/support/go-isatty
   - types
 - name: github.com/onsi/gomega
-  version: d59fa0ac68bb5dd932ee8d24eed631cdd519efc3
+  version: c463cd2a8578290d4be7a25cba69de81cf35785e
   subpackages:
-  - gstruct/errors
+  - format
   - internal/assertion
   - internal/asyncassertion
   - internal/oraclematcher
@@ -56,8 +46,8 @@ testImports:
   - matchers/support/goraph/util
   - types
 - name: golang.org/x/sys
-  version: 30de6d19a3bd89a5f38ae4028e23aaa5582648af
+  version: 76cc09b634294339fa19ec41b5f2a0b3932cea8b
   subpackages:
   - unix
 - name: gopkg.in/yaml.v2
-  version: e4d366fc3c7938e2958e662b4258c7a89e1f0e3e
+  version: a3f3340b5840cee44f372bddb5880fcbc419b46a

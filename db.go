@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/bsm/strset"
-	"gopkg.in/redis.v4"
+	"github.com/go-redis/redis"
 )
 
 var storageTTL = 35 * 24 * time.Hour
